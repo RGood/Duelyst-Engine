@@ -1,0 +1,367 @@
+package gamestate
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func Test_boardSpell(t *testing.T) {
+	p1, _, gs := setupGamestate()
+	units := gs.Board.GetPlayerUnits(p1)
+	p1general := units[0]
+
+	assert.Equal(t, NewPosition(0, 2), p1general.GetPosition())
+	p1general.AddAttribute("ranged", 0)
+	assert.True(t, p1general.HasAttribute("ranged"))
+
+	NewGenericSpell("EMP", 4, func(player *Player, gs *Gamestate, _ []Unit, _ []Position) {
+		for unit, _ := range gs.Board.Units {
+			gs.QueueAction(&EffectAction{
+				Unit: unit,
+				Effect: func(u Unit) {
+					u.Dispel()
+				},
+			})
+		}
+	}).Cast(p1, gs, nil, nil)
+
+	assert.False(t, p1general.HasAttribute("ranged"))
+}
+
+func Test_singleTargetSpell(t *testing.T) {
+	p1, p2, gs := setupGamestate()
+	p1units := gs.Board.GetPlayerUnits(p1)
+	p1general := p1units[0]
+
+	p2units := gs.Board.GetPlayerUnits(p2)
+	p2general := p2units[0]
+
+	assert.Equal(t, NewPosition(0, 2), p1general.GetPosition())
+	assert.Equal(t, NewPosition(8, 2), p2general.GetPosition())
+	assert.Equal(t, 25, p2general.GetHp())
+
+	phoenixFire := NewDamageSpell("Phoenix Fire", 2, 3, func(owner *Player, game *Gamestate, damage int, targets []Unit, _ []Position) {
+		if len(targets) == 1 {
+			game.QueueAction(&DamageAction{
+				Unit:   targets[0],
+				Damage: damage,
+			})
+		}
+	})
+
+	phoenixFire.Cast(p1, gs, []Unit{p2general}, nil)
+	assert.Equal(t, 22, p2general.GetHp())
+}
+
+func Test_multiTargetSpell(t *testing.T) {
+	p1, p2, gs := setupGamestate()
+
+	gremlin := NewMinion("gremlin", p1, 1, 1)
+	goblin := NewMinion("goblin", p2, 1, 1)
+
+	gremlin.Place(gs.Board, NewPosition(1, 2))
+	goblin.Place(gs.Board, NewPosition(7, 2))
+
+	juxtaposition := NewGenericSpell("Juxtaposition", 0, func(owner *Player, gs *Gamestate, units []Unit, _ []Position) {
+		if len(units) == 2 {
+			p1 := units[0].GetPosition()
+			p2 := units[1].GetPosition()
+
+			gs.QueueAction(&MoveAction{Unit: units[0], Position: p2})
+			gs.QueueAction(&MoveAction{Unit: units[1], Position: p1})
+		}
+	})
+
+	juxtaposition.Cast(p1, gs, []Unit{gremlin, goblin}, nil)
+
+	assert.Equal(t, NewPosition(7, 2), gremlin.GetPosition())
+	assert.Equal(t, NewPosition(1, 2), goblin.GetPosition())
+}
+
+func Test_tileSpell(t *testing.T) {
+	p1, p2, gs := setupGamestate()
+
+	gremlin := NewMinion("gremlin", p1, 1, 1)
+	goblin := NewMinion("goblin", p2, 1, 1)
+	gremlin.Place(gs.Board, NewPosition(1, 2))
+	goblin.Place(gs.Board, NewPosition(7, 2))
+
+	chromaticCold := NewGenericSpell("Chromatic Cold", 2, func(owner *Player, gs *Gamestate, _ []Unit, tiles []Position) {
+		if len(tiles) == 1 {
+			targetTile := tiles[0]
+			if _, ok := gs.Board.Positions[targetTile]; ok {
+				unit := gs.Board.Positions[targetTile]
+				if unit.GetOwner() != owner {
+					gs.QueueAction(&DamageAction{
+						Unit:   unit,
+						Damage: 1,
+					})
+				}
+
+				gs.QueueAction(&DispelAction{
+					Unit: unit,
+				})
+			}
+		}
+
+	})
+
+	chromaticCold.Cast(p2, gs, nil, []Position{NewPosition(1, 2)})
+	chromaticCold.Cast(p2, gs, nil, []Position{NewPosition(7, 2)})
+
+	assert.False(t, gremlin.IsAlive())
+	assert.True(t, goblin.IsAlive())
+}
+
+func Test_multiTileSpell(t *testing.T) {
+	p1, _, gs := setupGamestate()
+
+	bonechillBarrier := NewGenericSpell("Bonechill Barrier", 2, func(owner *Player, gs *Gamestate, _ []Unit, tiles []Position) {
+		if len(tiles) <= 3 {
+			for _, tile := range tiles {
+				token := NewWall("Bonechill Barrier", owner, 2, 0)
+				gs.QueueAction(&PlaceUnitAction{
+					Unit:     token,
+					Position: tile,
+				})
+			}
+		}
+	})
+
+	bonechillBarrier.Cast(p1, gs, nil, []Position{
+		NewPosition(1, 1),
+		NewPosition(2, 1),
+		NewPosition(3, 0),
+	})
+
+	assert.Equal(t, 4, len(gs.Board.GetPlayerUnits(p1)))
+
+	walls := []Unit{}
+	for _, unit := range gs.Board.GetPlayerUnits(p1) {
+		if unit.GetType() == "wall" {
+			walls = append(walls, unit)
+		}
+	}
+
+	assert.Equal(t, 3, len(walls))
+
+	chromaticCold := NewGenericSpell("Chromatic Cold", 2, func(owner *Player, gs *Gamestate, _ []Unit, tiles []Position) {
+		if len(tiles) == 1 {
+			targetTile := tiles[0]
+			if _, ok := gs.Board.Positions[targetTile]; ok {
+				unit := gs.Board.Positions[targetTile]
+				if unit.GetOwner() != owner {
+					gs.QueueAction(&DamageAction{
+						Unit:   unit,
+						Damage: 1,
+					})
+				}
+
+				gs.QueueAction(&DispelAction{
+					Unit: unit,
+				})
+			}
+		}
+	})
+
+	wall := walls[0]
+
+	chromaticCold.Cast(p1, gs, nil, []Position{wall.GetPosition()})
+	assert.False(t, wall.IsAlive())
+
+	assert.Equal(t, 3, len(gs.Board.GetPlayerUnits(p1)))
+}
+
+func Test_dispelMovedWall(t *testing.T) {
+	p1, _, gs := setupGamestate()
+
+	bonechillBarrier := NewGenericSpell("Bonechill Barrier", 2, func(owner *Player, gs *Gamestate, _ []Unit, tiles []Position) {
+		if len(tiles) <= 3 {
+			for _, tile := range tiles {
+				token := NewWall("Bonechill Barrier", owner, 2, 0)
+				gs.QueueAction(&PlaceUnitAction{
+					Unit:     token,
+					Position: tile,
+				})
+			}
+		}
+	})
+
+	bonechillBarrier.Cast(p1, gs, nil, []Position{
+		NewPosition(1, 1),
+		NewPosition(2, 1),
+		NewPosition(3, 0),
+	})
+
+	assert.Equal(t, 4, len(gs.Board.GetPlayerUnits(p1)))
+
+	walls := []Unit{}
+	for _, unit := range gs.Board.GetPlayerUnits(p1) {
+		if unit.GetType() == "wall" {
+			walls = append(walls, unit)
+		}
+	}
+
+	assert.Equal(t, 3, len(walls))
+
+	chromaticCold := NewGenericSpell("Chromatic Cold", 2, func(owner *Player, gs *Gamestate, _ []Unit, tiles []Position) {
+		if len(tiles) == 1 {
+			targetTile := tiles[0]
+			if _, ok := gs.Board.Positions[targetTile]; ok {
+				unit := gs.Board.Positions[targetTile]
+				if unit.GetOwner() != owner {
+					gs.QueueAction(&DamageAction{
+						Unit:   unit,
+						Damage: 1,
+					})
+				}
+
+				gs.QueueAction(&DispelAction{
+					Unit: unit,
+				})
+			}
+		}
+	})
+
+	wall := walls[0]
+
+	gs.MakeMove(&MoveAction{
+		wall,
+		NewPosition(4, 2),
+	})
+
+	chromaticCold.Cast(p1, gs, nil, []Position{wall.GetPosition()})
+	assert.False(t, wall.IsAlive())
+
+	assert.Equal(t, 3, len(gs.Board.GetPlayerUnits(p1)))
+	assert.Equal(t, nil, gs.Board.Positions[NewPosition(4, 2)])
+}
+
+func Test_endOfTurnListener(t *testing.T) {
+	p1, p2, gs := setupGamestate()
+	p1units := gs.Board.GetPlayerUnits(p1)
+	p1general := p1units[0]
+	p2units := gs.Board.GetPlayerUnits(p2)
+	p2general := p2units[0]
+
+	// Define Eight Gates spell
+	eightGates := NewGenericSpell("Eight Gates", 2, func(owner *Player, game *Gamestate, _ []Unit, _ []Position) {
+		NewUntilEndOfTurnInterceptor(
+			func(action Action, validateGame *Gamestate) bool {
+				spellAction, ok := action.(*SpellAction)
+				if ok {
+					_, dsOk := spellAction.Spell.(*DamageSpell)
+					return dsOk
+				}
+
+				return false
+			},
+			func(_ Interceptor, action Action, executionGamestate *Gamestate) Action {
+				sa, _ := action.(*SpellAction)
+				ds, _ := sa.Spell.(*DamageSpell)
+
+				return &SpellAction{
+					Owner: sa.Owner,
+					Spell: ds,
+					Effect: func() {
+						ds.Effect(sa.Owner, executionGamestate, ds.Damage+2, sa.Units, sa.Tiles)
+					},
+				}
+			},
+		).Subscribe(game)
+	})
+
+	// Define Phoenix Fire spell
+	phoenixFire := NewDamageSpell("Phoenix Fire", 2, 3, func(owner *Player, game *Gamestate, damage int, units []Unit, _ []Position) {
+		if len(units) == 1 {
+			game.QueueAction(&DamageAction{
+				Unit:   units[0],
+				Damage: damage,
+			})
+		}
+	})
+
+	// Cast Eight Gates
+	eightGates.Cast(p1, gs, nil, nil)
+	// Cast Phoenix Fire (should be buffed) (25 -> 15)
+	phoenixFire.Cast(p1, gs, []Unit{p2general}, nil)
+	phoenixFire.Cast(p1, gs, []Unit{p2general}, nil)
+
+	// End the turn
+	gs.MakeMove(&EndTurnAction{Owner: p1})
+
+	// Cast Phoenix Fire (should not be buffed) (25 -> 22)
+	phoenixFire.Cast(p2, gs, []Unit{p1general}, nil)
+
+	assert.Equal(t, 15, p2general.GetHp())
+	assert.Equal(t, 22, p1general.GetHp())
+}
+
+func Test_saberspineSeal(t *testing.T) {
+	p1, p2, gs := setupGamestate()
+	p1units := gs.Board.GetPlayerUnits(p1)
+	p1general := p1units[0]
+	p2units := gs.Board.GetPlayerUnits(p2)
+	p2general := p2units[0]
+
+	infrontOfP2 := p2general.GetPosition().Diff(NewPosition(1, 0))
+
+	gs.MakeMove(&MoveAction{
+		Unit:     p1general,
+		Position: infrontOfP2,
+	})
+
+	assert.True(t, p1general.IsNear(p2general))
+
+	saberspineSeal := NewGenericSpell("Saberspine Seal", 1, func(owner *Player, game *Gamestate, targets []Unit, _ []Position) {
+		if len(targets) == 1 {
+			targetUnit := targets[0]
+			targetUnit.BuffAttack(3)
+
+			NewUntilEndOfTurnListener(
+				func(action Action, gamestate *Gamestate) bool {
+					_, ok := action.(*EndTurnAction)
+					return ok
+				},
+				func(_ Listener, action Action, gamestate *Gamestate) {
+					targetUnit.BuffAttack(-3)
+				},
+			).Subscribe(game)
+		}
+	})
+
+	saberspineSeal.Cast(p1, gs, []Unit{p1general}, nil)
+
+	gs.MakeMove(&AttackAction{
+		Attacker: p1general,
+		Defender: p2general,
+	})
+
+	assert.Equal(t, 5, p1general.GetAttack())
+
+	gs.MakeMove(&EndTurnAction{})
+
+	assert.Equal(t, 2, p1general.GetAttack())
+
+	assert.Equal(t, 23, p1general.GetHp())
+	assert.Equal(t, 20, p2general.GetHp())
+
+	saberspineSeal.Cast(p2, gs, []Unit{p2general}, nil)
+	saberspineSeal.Cast(p2, gs, []Unit{p2general}, nil)
+
+	assert.Equal(t, 8, p2general.GetAttack())
+
+	gs.MakeMove(&AttackAction{
+		Attacker: p2general,
+		Defender: p1general,
+	})
+
+	assert.Equal(t, 15, p1general.GetHp())
+	assert.Equal(t, 18, p2general.GetHp())
+
+	gs.MakeMove(&EndTurnAction{})
+
+	assert.Equal(t, 2, p1general.GetAttack())
+	assert.Equal(t, 2, p2general.GetAttack())
+}
