@@ -1,4 +1,4 @@
-package gamestate
+package game
 
 type Event struct {
 	Type   string

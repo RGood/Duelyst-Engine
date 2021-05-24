@@ -1,22 +1,23 @@
-package gamestate
+package game
 
 import (
 	"testing"
 
+	"github.com/RGood/game_engine/pkg/gamestate"
 	"github.com/stretchr/testify/assert"
 )
 
 func Test_boardSpell(t *testing.T) {
 	p1, _, gs := setupGamestate()
-	units := gs.Board.GetPlayerUnits(p1)
+	units := p1.GetUnits()
 	p1general := units[0]
 
 	assert.Equal(t, NewPosition(0, 2), p1general.GetPosition())
 	p1general.AddAttribute("ranged", 0)
 	assert.True(t, p1general.HasAttribute("ranged"))
 
-	NewGenericSpell("EMP", 4, func(player *Player, gs *Gamestate, _ []Unit, _ []Position) {
-		for unit, _ := range gs.Board.Units {
+	NewGenericSpell("EMP", 4, func(player *Player, gs *gamestate.Gamestate, _ []Unit, _ []Position) {
+		for unit, _ := range player.Board.Units {
 			gs.QueueAction(&EffectAction{
 				Unit: unit,
 				Effect: func(u Unit) {
@@ -31,17 +32,17 @@ func Test_boardSpell(t *testing.T) {
 
 func Test_singleTargetSpell(t *testing.T) {
 	p1, p2, gs := setupGamestate()
-	p1units := gs.Board.GetPlayerUnits(p1)
+	p1units := p1.GetUnits()
 	p1general := p1units[0]
 
-	p2units := gs.Board.GetPlayerUnits(p2)
+	p2units := p2.GetUnits()
 	p2general := p2units[0]
 
 	assert.Equal(t, NewPosition(0, 2), p1general.GetPosition())
 	assert.Equal(t, NewPosition(8, 2), p2general.GetPosition())
 	assert.Equal(t, 25, p2general.GetHp())
 
-	phoenixFire := NewDamageSpell("Phoenix Fire", 2, 3, func(owner *Player, game *Gamestate, damage int, targets []Unit, _ []Position) {
+	phoenixFire := NewDamageSpell("Phoenix Fire", 2, 3, func(owner *Player, game *gamestate.Gamestate, damage int, targets []Unit, _ []Position) {
 		if len(targets) == 1 {
 			game.QueueAction(&DamageAction{
 				Unit:   targets[0],
@@ -57,13 +58,13 @@ func Test_singleTargetSpell(t *testing.T) {
 func Test_multiTargetSpell(t *testing.T) {
 	p1, p2, gs := setupGamestate()
 
-	gremlin := NewMinion("gremlin", p1, 1, 1)
-	goblin := NewMinion("goblin", p2, 1, 1)
+	gremlin := NewMinion("gremlin", 1, 1)
+	goblin := NewMinion("goblin", 1, 1)
 
-	gremlin.Place(gs.Board, NewPosition(1, 2))
-	goblin.Place(gs.Board, NewPosition(7, 2))
+	gremlin.Place(p1, NewPosition(1, 2))
+	goblin.Place(p2, NewPosition(7, 2))
 
-	juxtaposition := NewGenericSpell("Juxtaposition", 0, func(owner *Player, gs *Gamestate, units []Unit, _ []Position) {
+	juxtaposition := NewGenericSpell("Juxtaposition", 0, func(owner *Player, gs *gamestate.Gamestate, units []Unit, _ []Position) {
 		if len(units) == 2 {
 			p1 := units[0].GetPosition()
 			p2 := units[1].GetPosition()
@@ -82,16 +83,16 @@ func Test_multiTargetSpell(t *testing.T) {
 func Test_tileSpell(t *testing.T) {
 	p1, p2, gs := setupGamestate()
 
-	gremlin := NewMinion("gremlin", p1, 1, 1)
-	goblin := NewMinion("goblin", p2, 1, 1)
-	gremlin.Place(gs.Board, NewPosition(1, 2))
-	goblin.Place(gs.Board, NewPosition(7, 2))
+	gremlin := NewMinion("gremlin", 1, 1)
+	goblin := NewMinion("goblin", 1, 1)
+	gremlin.Place(p1, NewPosition(1, 2))
+	goblin.Place(p2, NewPosition(7, 2))
 
-	chromaticCold := NewGenericSpell("Chromatic Cold", 2, func(owner *Player, gs *Gamestate, _ []Unit, tiles []Position) {
+	chromaticCold := NewGenericSpell("Chromatic Cold", 2, func(owner *Player, gs *gamestate.Gamestate, _ []Unit, tiles []Position) {
 		if len(tiles) == 1 {
 			targetTile := tiles[0]
-			if _, ok := gs.Board.Positions[targetTile]; ok {
-				unit := gs.Board.Positions[targetTile]
+			if _, ok := owner.Board.Positions[targetTile]; ok {
+				unit := owner.Board.Positions[targetTile]
 				if unit.GetOwner() != owner {
 					gs.QueueAction(&DamageAction{
 						Unit:   unit,
@@ -117,11 +118,12 @@ func Test_tileSpell(t *testing.T) {
 func Test_multiTileSpell(t *testing.T) {
 	p1, _, gs := setupGamestate()
 
-	bonechillBarrier := NewGenericSpell("Bonechill Barrier", 2, func(owner *Player, gs *Gamestate, _ []Unit, tiles []Position) {
+	bonechillBarrier := NewGenericSpell("Bonechill Barrier", 2, func(owner *Player, gs *gamestate.Gamestate, _ []Unit, tiles []Position) {
 		if len(tiles) <= 3 {
 			for _, tile := range tiles {
 				token := NewWall("Bonechill Barrier", owner, 2, 0)
 				gs.QueueAction(&PlaceUnitAction{
+					Owner:    owner,
 					Unit:     token,
 					Position: tile,
 				})
@@ -135,22 +137,22 @@ func Test_multiTileSpell(t *testing.T) {
 		NewPosition(3, 0),
 	})
 
-	assert.Equal(t, 4, len(gs.Board.GetPlayerUnits(p1)))
+	assert.Equal(t, 4, len(p1.GetUnits()))
 
 	walls := []Unit{}
-	for _, unit := range gs.Board.GetPlayerUnits(p1) {
-		if unit.GetType() == "wall" {
+	for _, unit := range p1.GetUnits() {
+		if unit.HasSubtype("wall") {
 			walls = append(walls, unit)
 		}
 	}
 
 	assert.Equal(t, 3, len(walls))
 
-	chromaticCold := NewGenericSpell("Chromatic Cold", 2, func(owner *Player, gs *Gamestate, _ []Unit, tiles []Position) {
+	chromaticCold := NewGenericSpell("Chromatic Cold", 2, func(owner *Player, gs *gamestate.Gamestate, _ []Unit, tiles []Position) {
 		if len(tiles) == 1 {
 			targetTile := tiles[0]
-			if _, ok := gs.Board.Positions[targetTile]; ok {
-				unit := gs.Board.Positions[targetTile]
+			if _, ok := owner.Board.Positions[targetTile]; ok {
+				unit := owner.Board.Positions[targetTile]
 				if unit.GetOwner() != owner {
 					gs.QueueAction(&DamageAction{
 						Unit:   unit,
@@ -170,17 +172,18 @@ func Test_multiTileSpell(t *testing.T) {
 	chromaticCold.Cast(p1, gs, nil, []Position{wall.GetPosition()})
 	assert.False(t, wall.IsAlive())
 
-	assert.Equal(t, 3, len(gs.Board.GetPlayerUnits(p1)))
+	assert.Equal(t, 3, len(p1.GetUnits()))
 }
 
 func Test_dispelMovedWall(t *testing.T) {
 	p1, _, gs := setupGamestate()
 
-	bonechillBarrier := NewGenericSpell("Bonechill Barrier", 2, func(owner *Player, gs *Gamestate, _ []Unit, tiles []Position) {
+	bonechillBarrier := NewGenericSpell("Bonechill Barrier", 2, func(owner *Player, gs *gamestate.Gamestate, _ []Unit, tiles []Position) {
 		if len(tiles) <= 3 {
 			for _, tile := range tiles {
 				token := NewWall("Bonechill Barrier", owner, 2, 0)
 				gs.QueueAction(&PlaceUnitAction{
+					Owner:    owner,
 					Unit:     token,
 					Position: tile,
 				})
@@ -194,22 +197,22 @@ func Test_dispelMovedWall(t *testing.T) {
 		NewPosition(3, 0),
 	})
 
-	assert.Equal(t, 4, len(gs.Board.GetPlayerUnits(p1)))
+	assert.Equal(t, 4, len(p1.GetUnits()))
 
 	walls := []Unit{}
-	for _, unit := range gs.Board.GetPlayerUnits(p1) {
-		if unit.GetType() == "wall" {
+	for _, unit := range p1.GetUnits() {
+		if unit.HasSubtype("wall") {
 			walls = append(walls, unit)
 		}
 	}
 
 	assert.Equal(t, 3, len(walls))
 
-	chromaticCold := NewGenericSpell("Chromatic Cold", 2, func(owner *Player, gs *Gamestate, _ []Unit, tiles []Position) {
+	chromaticCold := NewGenericSpell("Chromatic Cold", 2, func(owner *Player, gs *gamestate.Gamestate, _ []Unit, tiles []Position) {
 		if len(tiles) == 1 {
 			targetTile := tiles[0]
-			if _, ok := gs.Board.Positions[targetTile]; ok {
-				unit := gs.Board.Positions[targetTile]
+			if _, ok := owner.Board.Positions[targetTile]; ok {
+				unit := owner.Board.Positions[targetTile]
 				if unit.GetOwner() != owner {
 					gs.QueueAction(&DamageAction{
 						Unit:   unit,
@@ -234,21 +237,21 @@ func Test_dispelMovedWall(t *testing.T) {
 	chromaticCold.Cast(p1, gs, nil, []Position{wall.GetPosition()})
 	assert.False(t, wall.IsAlive())
 
-	assert.Equal(t, 3, len(gs.Board.GetPlayerUnits(p1)))
-	assert.Equal(t, nil, gs.Board.Positions[NewPosition(4, 2)])
+	assert.Equal(t, 3, len(p1.GetUnits()))
+	assert.Equal(t, nil, p1.Board.Positions[NewPosition(4, 2)])
 }
 
 func Test_endOfTurnListener(t *testing.T) {
 	p1, p2, gs := setupGamestate()
-	p1units := gs.Board.GetPlayerUnits(p1)
+	p1units := p1.GetUnits()
 	p1general := p1units[0]
-	p2units := gs.Board.GetPlayerUnits(p2)
+	p2units := p2.GetUnits()
 	p2general := p2units[0]
 
 	// Define Eight Gates spell
-	eightGates := NewGenericSpell("Eight Gates", 2, func(owner *Player, game *Gamestate, _ []Unit, _ []Position) {
+	eightGates := NewGenericSpell("Eight Gates", 2, func(owner *Player, game *gamestate.Gamestate, _ []Unit, _ []Position) {
 		NewUntilEndOfTurnInterceptor(
-			func(action Action, validateGame *Gamestate) bool {
+			func(action gamestate.Action, validateGame *gamestate.Gamestate) bool {
 				spellAction, ok := action.(*SpellAction)
 				if ok {
 					_, dsOk := spellAction.Spell.(*DamageSpell)
@@ -257,7 +260,7 @@ func Test_endOfTurnListener(t *testing.T) {
 
 				return false
 			},
-			func(_ Interceptor, action Action, executionGamestate *Gamestate) Action {
+			func(_ gamestate.Interceptor, action gamestate.Action, executionGamestate *gamestate.Gamestate) gamestate.Action {
 				sa, _ := action.(*SpellAction)
 				ds, _ := sa.Spell.(*DamageSpell)
 
@@ -273,7 +276,7 @@ func Test_endOfTurnListener(t *testing.T) {
 	})
 
 	// Define Phoenix Fire spell
-	phoenixFire := NewDamageSpell("Phoenix Fire", 2, 3, func(owner *Player, game *Gamestate, damage int, units []Unit, _ []Position) {
+	phoenixFire := NewDamageSpell("Phoenix Fire", 2, 3, func(owner *Player, game *gamestate.Gamestate, damage int, units []Unit, _ []Position) {
 		if len(units) == 1 {
 			game.QueueAction(&DamageAction{
 				Unit:   units[0],
@@ -300,9 +303,9 @@ func Test_endOfTurnListener(t *testing.T) {
 
 func Test_saberspineSeal(t *testing.T) {
 	p1, p2, gs := setupGamestate()
-	p1units := gs.Board.GetPlayerUnits(p1)
+	p1units := p1.GetUnits()
 	p1general := p1units[0]
-	p2units := gs.Board.GetPlayerUnits(p2)
+	p2units := p2.GetUnits()
 	p2general := p2units[0]
 
 	infrontOfP2 := p2general.GetPosition().Diff(NewPosition(1, 0))
@@ -314,17 +317,17 @@ func Test_saberspineSeal(t *testing.T) {
 
 	assert.True(t, p1general.IsNear(p2general))
 
-	saberspineSeal := NewGenericSpell("Saberspine Seal", 1, func(owner *Player, game *Gamestate, targets []Unit, _ []Position) {
+	saberspineSeal := NewGenericSpell("Saberspine Seal", 1, func(owner *Player, game *gamestate.Gamestate, targets []Unit, _ []Position) {
 		if len(targets) == 1 {
 			targetUnit := targets[0]
 			targetUnit.BuffAttack(3)
 
 			NewUntilEndOfTurnListener(
-				func(action Action, gamestate *Gamestate) bool {
+				func(action gamestate.Action, gamestate *gamestate.Gamestate) bool {
 					_, ok := action.(*EndTurnAction)
 					return ok
 				},
-				func(_ Listener, action Action, gamestate *Gamestate) {
+				func(_ gamestate.Listener, action gamestate.Action, gamestate *gamestate.Gamestate) {
 					targetUnit.BuffAttack(-3)
 				},
 			).Subscribe(game)

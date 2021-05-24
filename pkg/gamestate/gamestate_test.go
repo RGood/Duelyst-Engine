@@ -6,77 +6,46 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func Test_draw(t *testing.T) {
-	p1, p2, gs := setupGamestate()
-
-	p1units := gs.Board.GetPlayerUnits(p1)
-	p1general := p1units[0]
-	p2units := gs.Board.GetPlayerUnits(p2)
-	p2general := p2units[0]
-
-	gs.MakeMove(&MoveAction{
-		Unit:     p1general,
-		Position: NewPosition(7, 2),
-	})
-
-	// Attack until death
-	for i := 0; i < 50; i++ {
-		gs.MakeMove(&AttackAction{
-			Attacker: p1general,
-			Defender: p2general,
-		})
-
-		gs.MakeMove(&EndTurnAction{
-			Owner: gs.ActivePlayer,
-		})
-	}
-
-	assert.True(t, gs.HasEnded())
-	hasEnded, winner := gs.Winner()
-
-	assert.True(t, hasEnded)
-	assert.Nil(t, winner)
+type TestPlayer struct {
+	Alive bool
 }
 
-func Test_winner(t *testing.T) {
-	p1, p2, gs := setupGamestate()
+func (player *TestPlayer) IsAlive() bool {
+	return player.Alive
+}
 
-	p1units := gs.Board.GetPlayerUnits(p1)
-	p1general := p1units[0]
-	p2units := gs.Board.GetPlayerUnits(p2)
-	p2general := p2units[0]
-
-	gs.MakeMove(&MoveAction{
-		Unit:     p1general,
-		Position: NewPosition(7, 2),
-	})
-
-	pf := NewDamageSpell("Phoenix Fire", 2, 3, func(owner *Player, game *Gamestate, damage int, targets []Unit, _ []Position) {
-		if len(targets) == 1 {
-			game.QueueAction(&DamageAction{
-				Unit:   targets[0],
-				Damage: damage,
-			})
-		}
-	})
-
-	pf.Cast(p1, gs, []Unit{p2general}, nil)
-
-	// Attack until death
-	for i := 0; i < 50; i++ {
-		gs.MakeMove(&AttackAction{
-			Attacker: p1general,
-			Defender: p2general,
-		})
-
-		gs.MakeMove(&EndTurnAction{
-			Owner: gs.ActivePlayer,
-		})
+func NewTestPlayer(alive bool) *TestPlayer {
+	return &TestPlayer{
+		Alive: alive,
 	}
+}
 
-	assert.True(t, gs.HasEnded())
-	hasEnded, winner := gs.Winner()
+func Test_gamestate(t *testing.T) {
+	p1 := NewTestPlayer(true)
+	p2 := NewTestPlayer(true)
 
+	gamestate := NewGamestate(p1, p2)
+
+	assert.False(t, gamestate.HasEnded())
+
+	hasEnded, winner := gamestate.Winner()
+	assert.False(t, hasEnded)
+	assert.Nil(t, winner)
+
+	assert.Equal(t, p1, gamestate.ActivePlayer)
+
+	gamestate.EndTurn()
+
+	assert.Equal(t, p2, gamestate.ActivePlayer)
+
+	p2.Alive = false
+
+	assert.True(t, gamestate.HasEnded())
+
+	hasEnded, winner = gamestate.Winner()
 	assert.True(t, hasEnded)
 	assert.Equal(t, p1, winner)
+
+	gamestate.EndTurn()
+	assert.Equal(t, p2, gamestate.ActivePlayer)
 }

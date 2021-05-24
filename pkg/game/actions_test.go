@@ -1,41 +1,42 @@
-package gamestate
+package game
 
 import (
 	"testing"
 
+	"github.com/RGood/game_engine/pkg/gamestate"
 	"github.com/stretchr/testify/assert"
 )
 
-func setupGamestate() (*Player, *Player, *Gamestate) {
-	p1 := NewPlayer("Foo", "Lyonar", NewPosition(0, 2), true)
-	p2 := NewPlayer("Bar", "Songhai", NewPosition(8, 2), false)
+func setupGamestate() (*Player, *Player, *gamestate.Gamestate) {
+	board := NewUnitBoard(9, 5)
+	p1 := NewPlayer("Foo", "Lyonar", board, NewPosition(0, 2), true)
+	p2 := NewPlayer("Bar", "Songhai", board, NewPosition(8, 2), false)
 
-	return p1, p2, NewGamestate(p1, p2)
+	return p1, p2, gamestate.NewGamestate(p1, p2)
 }
 
 func Test_gameSetup(t *testing.T) {
-	p1, p2, gs := setupGamestate()
-
-	p1units := gs.Board.GetPlayerUnits(p1)
+	p1, p2, _ := setupGamestate()
+	p1units := p1.GetUnits()
 
 	assert.Equal(t, 1, len(p1units))
 	assert.Equal(t, "general", p1units[0].GetType())
 	assert.Equal(t, 2, p1units[0].GetAttack())
 	assert.Equal(t, 25, p1units[0].GetHp())
 
-	p2units := gs.Board.GetPlayerUnits(p2)
+	p2units := p2.Board.GetPlayerUnits(p2)
 	assert.Equal(t, 1, len(p2units))
 	assert.Equal(t, "general", p2units[0].GetType())
 	assert.Equal(t, 2, p2units[0].GetAttack())
 	assert.Equal(t, 25, p2units[0].GetHp())
 
-	assert.True(t, p1.IsAlive(gs))
-	assert.True(t, p2.IsAlive(gs))
+	assert.True(t, p1.IsAlive())
+	assert.True(t, p2.IsAlive())
 }
 
 func Test_move(t *testing.T) {
 	p1, _, gs := setupGamestate()
-	units := gs.Board.GetPlayerUnits(p1)
+	units := p1.Board.GetPlayerUnits(p1)
 
 	assert.Equal(t, 1, len(units))
 	unit := units[0]
@@ -44,7 +45,7 @@ func Test_move(t *testing.T) {
 	assert.Equal(t, NewPosition(0, 2), unit.GetPosition())
 
 	// This wasn't always true, and it was horrible to debug
-	assert.Equal(t, unit.GetPosition(), gs.Board.GetPosition(unit))
+	assert.Equal(t, unit.GetPosition(), p1.Board.GetPosition(unit))
 
 	gs.MakeMove(&MoveAction{
 		Unit:     unit,
@@ -56,7 +57,7 @@ func Test_move(t *testing.T) {
 
 func Test_health(t *testing.T) {
 	p1, _, gs := setupGamestate()
-	units := gs.Board.GetPlayerUnits(p1)
+	units := p1.Board.GetPlayerUnits(p1)
 	general := units[0]
 
 	assert.Equal(t, 25, general.GetHp())
@@ -80,10 +81,10 @@ func Test_health(t *testing.T) {
 func Test_attack(t *testing.T) {
 	p1, p2, gs := setupGamestate()
 
-	p1units := gs.Board.GetPlayerUnits(p1)
+	p1units := p1.Board.GetPlayerUnits(p1)
 	p1general := p1units[0]
 
-	p2units := gs.Board.GetPlayerUnits(p2)
+	p2units := p2.Board.GetPlayerUnits(p2)
 	p2general := p2units[0]
 
 	infrontOfP2 := p2general.GetPosition().Diff(NewPosition(1, 0))
@@ -106,17 +107,17 @@ func Test_blastAttack(t *testing.T) {
 
 	p1, p2, gs := setupGamestate()
 
-	p1units := gs.Board.GetPlayerUnits(p1)
+	p1units := p1.GetUnits()
 	p1general := p1units[0]
 
 	p1general.AddAttribute("blast", 0)
 
-	gremlin1 := NewMinion("gremlin", p2, 1, 1)
-	gs.MakeMove(&PlaceUnitAction{Unit: gremlin1, Position: NewPosition(7, 2)})
-	gremlin2 := NewMinion("gremlin", p2, 1, 1)
-	gs.MakeMove(&PlaceUnitAction{Unit: gremlin2, Position: NewPosition(6, 2)})
-	gremlin3 := NewMinion("gremlin", p2, 1, 1)
-	gs.MakeMove(&PlaceUnitAction{Unit: gremlin3, Position: NewPosition(5, 2)})
+	gremlin1 := NewMinion("gremlin", 1, 1)
+	gs.MakeMove(&PlaceUnitAction{Owner: p2, Unit: gremlin1, Position: NewPosition(7, 2)})
+	gremlin2 := NewMinion("gremlin", 1, 1)
+	gs.MakeMove(&PlaceUnitAction{Owner: p2, Unit: gremlin2, Position: NewPosition(6, 2)})
+	gremlin3 := NewMinion("gremlin", 1, 1)
+	gs.MakeMove(&PlaceUnitAction{Owner: p2, Unit: gremlin3, Position: NewPosition(5, 2)})
 
 	gs.MakeMove(&AttackAction{
 		Attacker: p1general,
@@ -134,17 +135,17 @@ func Test_blastAttack(t *testing.T) {
 func Test_frenzyAttack(t *testing.T) {
 	p1, p2, gs := setupGamestate()
 
-	p1units := gs.Board.GetPlayerUnits(p1)
+	p1units := p1.Board.GetPlayerUnits(p1)
 	p1general := p1units[0]
 
 	p1general.AddAttribute("frenzy", 0)
 
-	gremlin1 := NewMinion("gremlin", p2, 1, 1)
-	gs.MakeMove(&PlaceUnitAction{Unit: gremlin1, Position: NewPosition(0, 1)})
-	gremlin2 := NewMinion("gremlin", p2, 1, 1)
-	gs.MakeMove(&PlaceUnitAction{Unit: gremlin2, Position: NewPosition(1, 2)})
-	gremlin3 := NewMinion("gremlin", p2, 1, 1)
-	gs.MakeMove(&PlaceUnitAction{Unit: gremlin3, Position: NewPosition(0, 3)})
+	gremlin1 := NewMinion("gremlin", 1, 1)
+	gs.MakeMove(&PlaceUnitAction{Owner: p2, Unit: gremlin1, Position: NewPosition(0, 1)})
+	gremlin2 := NewMinion("gremlin", 1, 1)
+	gs.MakeMove(&PlaceUnitAction{Owner: p2, Unit: gremlin2, Position: NewPosition(1, 2)})
+	gremlin3 := NewMinion("gremlin", 1, 1)
+	gs.MakeMove(&PlaceUnitAction{Owner: p2, Unit: gremlin3, Position: NewPosition(0, 3)})
 
 	gs.MakeMove(&AttackAction{
 		Attacker: p1general,
@@ -165,10 +166,10 @@ func Test_frenzyAttack(t *testing.T) {
 func Test_rangedAttack(t *testing.T) {
 	p1, p2, gs := setupGamestate()
 
-	p1units := gs.Board.GetPlayerUnits(p1)
+	p1units := p1.Board.GetPlayerUnits(p1)
 	p1general := p1units[0]
 
-	p2units := gs.Board.GetPlayerUnits(p2)
+	p2units := p1.Board.GetPlayerUnits(p2)
 	p2general := p2units[0]
 
 	p1general.AddAttribute("ranged", 0)
@@ -186,10 +187,10 @@ func Test_backstabAttack(t *testing.T) {
 
 	p1, p2, gs := setupGamestate()
 
-	p1units := gs.Board.GetPlayerUnits(p1)
+	p1units := p1.GetUnits()
 	p1general := p1units[0]
 
-	p2units := gs.Board.GetPlayerUnits(p2)
+	p2units := p2.GetUnits()
 	p2general := p2units[0]
 
 	p1general.AddAttribute("backstab", 2)

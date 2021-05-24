@@ -1,9 +1,12 @@
-package gamestate
+package game
+
+import "github.com/RGood/game_engine/pkg/gamestate"
 
 type Unit interface {
 	GetName() string
 	GetOwner() *Player
 	GetType() string
+	HasSubtype(string) bool
 	GetHp() int
 	IsAlive() bool
 	GetAttack() int
@@ -19,9 +22,10 @@ type Unit interface {
 	Damage(int)
 	GetPosition() Position
 	FacesRight() bool
+	GetValidMoves() map[Position]struct{}
 	Move(Position)
-	Place(*UnitBoard, Position)
-	Remove(*UnitBoard)
+	Place(*Player, Position)
+	Remove()
 	Dispel()
 	BuffAttack(int)
 	BuffHealth(int)
@@ -29,26 +33,30 @@ type Unit interface {
 	GetBoard() *UnitBoard
 	AddActionTrigger(ActionTrigger) int
 	RemoveActionTrigger(int)
-	Subscribe(*Gamestate)
-	Unsubscribe(*Gamestate)
-	Notify(Action, *Gamestate)
+	Subscribe(*gamestate.Gamestate)
+	Unsubscribe(*gamestate.Gamestate)
+	Notify(gamestate.Action, *gamestate.Gamestate)
+	Apply(gamestate.Action, *gamestate.Gamestate) gamestate.Action
 }
 
 type Minion struct {
-	name         string
-	unitType     string
-	owner        *Player
-	faceRight    bool
-	walkDistance int
-	baseHp       int
-	hpDelta      int
-	baseAttack   int
-	attackDelta  int
-	damage       int
-	attributes   map[string]int
-	board        *UnitBoard
-	triggerCount int
-	triggers     map[int]ActionTrigger
+	name             string
+	unitType         string
+	subtypes         map[string]struct{}
+	owner            *Player
+	faceRight        bool
+	walkDistance     int
+	baseHp           int
+	hpDelta          int
+	baseAttack       int
+	attackDelta      int
+	damage           int
+	attributes       map[string]int
+	board            *UnitBoard
+	triggerCount     int
+	triggers         map[int]ActionTrigger
+	interceptorCount int
+	interceptors     map[int]InterceptTrigger
 }
 
 func Equal(u1, u2 Unit) bool {
@@ -57,26 +65,118 @@ func Equal(u1, u2 Unit) bool {
 		u1.GetPosition() == u2.GetPosition()
 }
 
-type General struct {
-	Minion
-}
-
-type Wall struct {
-	Minion
-}
-
 type ActionTrigger struct {
-	Trigger   func(Action, *Gamestate)
+	Trigger   func(gamestate.Action, *gamestate.Gamestate)
 	CanDispel bool
 }
 
-func NewMinion(name string, owner *Player, hp int, attack int) *Minion {
+type InterceptTrigger struct {
+	Trigger   func(gamestate.Action, *gamestate.Gamestate) gamestate.Action
+	CanDispel bool
+}
+
+type UnitFactory struct {
+	name             string
+	unitType         string
+	subtypes         map[string]struct{}
+	hp               int
+	attack           int
+	attributes       map[string]int
+	triggerCount     int
+	triggers         map[int]ActionTrigger
+	interceptorCount int
+	interceptors     map[int]InterceptTrigger
+}
+
+func NewUnitFactory() *UnitFactory {
+	return &UnitFactory{
+		subtypes:         map[string]struct{}{},
+		attributes:       map[string]int{},
+		triggerCount:     0,
+		triggers:         map[int]ActionTrigger{},
+		interceptorCount: 0,
+		interceptors:     map[int]InterceptTrigger{},
+	}
+}
+
+func (uf *UnitFactory) SetName(name string) *UnitFactory {
+	uf.name = name
+	return uf
+}
+
+func (uf *UnitFactory) SetUnitType(unitType string) *UnitFactory {
+	uf.unitType = unitType
+	return uf
+}
+
+func (uf *UnitFactory) AddSubtype(subtype string) *UnitFactory {
+	uf.subtypes[subtype] = struct{}{}
+	return uf
+}
+
+func (uf *UnitFactory) SetHealth(hp int) *UnitFactory {
+	uf.hp = hp
+	return uf
+}
+
+func (uf *UnitFactory) SetAttack(attack int) *UnitFactory {
+	uf.attack = attack
+	return uf
+}
+
+func (uf *UnitFactory) AddAttribute(name string, value int) *UnitFactory {
+	uf.attributes[name] = value
+	return uf
+}
+
+func (uf *UnitFactory) AddTrigger(trigger ActionTrigger) *UnitFactory {
+	triggerId := uf.triggerCount
+	uf.triggerCount++
+	uf.triggers[triggerId] = trigger
+	return uf
+}
+
+func (uf *UnitFactory) AddIntercept(trigger InterceptTrigger) *UnitFactory {
+	interceptorId := uf.interceptorCount
+	uf.interceptorCount++
+	uf.interceptors[interceptorId] = trigger
+	return uf
+}
+
+func (uf *UnitFactory) Create() Unit {
+	return NewUnit(
+		uf.name,
+		uf.unitType,
+		uf.subtypes,
+		uf.attributes,
+		uf.hp,
+		uf.attack,
+		uf.triggers,
+		uf.interceptors,
+	)
+}
+
+func NewUnit(name string, unitType string, subtypes map[string]struct{}, attributes map[string]int, hp int, attack int, triggers map[int]ActionTrigger, interceptors map[int]InterceptTrigger) Unit {
+	return &Minion{
+		name:             name,
+		unitType:         unitType,
+		subtypes:         subtypes,
+		attributes:       attributes,
+		baseHp:           hp,
+		baseAttack:       attack,
+		walkDistance:     2,
+		triggerCount:     len(triggers),
+		triggers:         triggers,
+		interceptorCount: len(interceptors),
+		interceptors:     interceptors,
+	}
+}
+
+func NewMinion(name string, hp int, attack int) *Minion {
 
 	minion := &Minion{
 		name:         name,
-		owner:        owner,
 		unitType:     "minion",
-		faceRight:    owner.FacesRight,
 		walkDistance: 2,
 		baseHp:       hp,
 		hpDelta:      0,
@@ -90,8 +190,8 @@ func NewMinion(name string, owner *Player, hp int, attack int) *Minion {
 	return minion
 }
 
-func NewGeneral(name string, owner *Player) *General {
-	general := &General{Minion{
+func NewGeneral(name string, owner *Player) *Minion {
+	general := &Minion{
 		name:         name,
 		owner:        owner,
 		unitType:     "general",
@@ -104,16 +204,17 @@ func NewGeneral(name string, owner *Player) *General {
 		damage:       0,
 		attributes:   map[string]int{},
 		triggers:     map[int]ActionTrigger{},
-	}}
+	}
 
 	return general
 }
 
-func NewWall(name string, owner *Player, hp int, attack int) *Wall {
-	wall := &Wall{Minion{
+func NewWall(name string, owner *Player, hp int, attack int) *Minion {
+	wall := &Minion{
 		name:         name,
 		owner:        owner,
-		unitType:     "wall",
+		unitType:     "token",
+		subtypes:     map[string]struct{}{"wall": struct{}{}},
 		faceRight:    owner.FacesRight,
 		walkDistance: 0,
 		baseHp:       hp,
@@ -123,10 +224,10 @@ func NewWall(name string, owner *Player, hp int, attack int) *Wall {
 		damage:       0,
 		attributes:   map[string]int{},
 		triggers:     map[int]ActionTrigger{},
-	}}
+	}
 
 	wall.AddActionTrigger(ActionTrigger{
-		Trigger: func(action Action, gs *Gamestate) {
+		Trigger: func(action gamestate.Action, gs *gamestate.Gamestate) {
 			dispelAction, ok := action.(*DispelAction)
 			if ok {
 				if Equal(dispelAction.Unit, wall) {
@@ -144,6 +245,11 @@ func NewWall(name string, owner *Player, hp int, attack int) *Wall {
 
 func (m *Minion) GetType() string {
 	return m.unitType
+}
+
+func (m *Minion) HasSubtype(subtype string) bool {
+	_, ok := m.subtypes[subtype]
+	return ok
 }
 
 func (m *Minion) GetName() string {
@@ -305,6 +411,16 @@ func (m *Minion) FacesRight() bool {
 	return m.faceRight
 }
 
+func (m *Minion) GetValidMoves() map[Position]struct{} {
+	positions := map[Position]struct{}{}
+
+	if m.board != nil {
+		return m.board.GetValidMoves(m)
+	}
+
+	return positions
+}
+
 func (m *Minion) Move(pos Position) {
 	if m.board != nil && pos.IsOnBoard(m.board) {
 		oldPos := m.board.Units[m]
@@ -314,12 +430,16 @@ func (m *Minion) Move(pos Position) {
 	}
 }
 
-func (m *Minion) Place(board *UnitBoard, pos Position) {
-	board.PlaceUnit(m, pos)
+func (m *Minion) Place(owner *Player, pos Position) {
+	m.owner = owner
+	owner.Board.PlaceUnit(m, pos)
 }
 
-func (m *Minion) Remove(board *UnitBoard) {
-	board.RemoveUnit(m)
+func (m *Minion) Remove() {
+	if m.board != nil {
+		m.board.RemoveUnit(m)
+	}
+	m.owner = nil
 }
 
 func (m *Minion) Dispel() {
@@ -330,6 +450,12 @@ func (m *Minion) Dispel() {
 	for id, trigger := range m.triggers {
 		if trigger.CanDispel {
 			delete(m.triggers, id)
+		}
+	}
+
+	for id, interceptor := range m.interceptors {
+		if interceptor.CanDispel {
+			delete(m.interceptors, id)
 		}
 	}
 }
@@ -375,16 +501,26 @@ func (m *Minion) RemoveActionTrigger(triggerId int) {
 	delete(m.triggers, triggerId)
 }
 
-func (m *Minion) Subscribe(gs *Gamestate) {
+func (m *Minion) Subscribe(gs *gamestate.Gamestate) {
 	gs.Subscribe(m)
+	gs.AddInterceptor(m)
 }
 
-func (m *Minion) Unsubscribe(gs *Gamestate) {
+func (m *Minion) Unsubscribe(gs *gamestate.Gamestate) {
 	gs.Unsubscribe(m)
+	gs.RemoveInterceptor(m)
 }
 
-func (m *Minion) Notify(action Action, gs *Gamestate) {
+func (m *Minion) Notify(action gamestate.Action, gs *gamestate.Gamestate) {
 	for _, trigger := range m.triggers {
 		trigger.Trigger(action, gs)
 	}
+}
+
+func (m *Minion) Apply(action gamestate.Action, gs *gamestate.Gamestate) gamestate.Action {
+	for _, interceptor := range m.interceptors {
+		action = interceptor.Trigger(action, gs)
+	}
+
+	return action
 }

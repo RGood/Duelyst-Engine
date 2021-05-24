@@ -1,21 +1,22 @@
-package gamestate
+package game
 
 import (
 	"testing"
 
+	"github.com/RGood/game_engine/pkg/gamestate"
 	"github.com/stretchr/testify/assert"
 )
 
 func Test_equipUnequip(t *testing.T) {
 	p1, p2, gs := setupGamestate()
-	p2units := gs.Board.GetPlayerUnits(p2)
+	p2units := p2.GetUnits()
 	p2general := p2units[0]
 
-	brm := NewArtifact("Bloodrage Mask", 1).OnNotify(func(artifact *Artifact, action Action, gamestate *Gamestate) {
+	brm := NewArtifact("Bloodrage Mask", 1).OnNotify(func(artifact *Artifact, action gamestate.Action, gamestate *gamestate.Gamestate) {
 		sa, ok := action.(*SpellAction)
 		if ok && sa.Owner == artifact.Owner {
 			units := []Unit{}
-			for unit, _ := range gamestate.Board.Units {
+			for unit, _ := range p1.Board.Units {
 				units = append(units, unit)
 			}
 
@@ -37,7 +38,7 @@ func Test_equipUnequip(t *testing.T) {
 	})
 
 	dummyArtifact := NewArtifact("Dummy", 0)
-	nullSpell := NewGenericSpell("Test", 0, func(arg1 *Player, arg2 *Gamestate, arg3 []Unit, arg4 []Position) {
+	nullSpell := NewGenericSpell("Test", 0, func(arg1 *Player, arg2 *gamestate.Gamestate, arg3 []Unit, arg4 []Position) {
 
 	})
 
@@ -53,35 +54,35 @@ func Test_equipUnequip(t *testing.T) {
 
 func Test_arclyteRegalia(t *testing.T) {
 	p1, p2, gs := setupGamestate()
-	p1units := gs.Board.GetPlayerUnits(p1)
+	p1units := p1.GetUnits()
 	p1general := p1units[0]
-	p2units := gs.Board.GetPlayerUnits(p2)
+	p2units := p2.GetUnits()
 	p2general := p2units[0]
 
 	damageCounter := 0
 	arclyteRegalia := NewArtifact(
 		"Arclyte Regalia",
 		4,
-	).OnEquip(func(artifact *Artifact, gamestate *Gamestate) {
-		general := filterUnits(gamestate.Board.GetPlayerUnits(artifact.Owner), func(unit Unit) bool {
+	).OnEquip(func(artifact *Artifact, gamestate *gamestate.Gamestate) {
+		general := filterUnits(artifact.Owner.Board.GetPlayerUnits(artifact.Owner), func(unit Unit) bool {
 			return unit.GetType() == "general"
 		})[0]
 
 		general.BuffAttack(2)
-	}).OnUnEquip(func(artifact *Artifact, gamestate *Gamestate) {
-		general := filterUnits(gamestate.Board.GetPlayerUnits(artifact.Owner), func(unit Unit) bool {
+	}).OnUnEquip(func(artifact *Artifact, gamestate *gamestate.Gamestate) {
+		general := filterUnits(artifact.Owner.Board.GetPlayerUnits(artifact.Owner), func(unit Unit) bool {
 			return unit.GetType() == "general"
 		})[0]
 
 		general.BuffAttack(-2)
-	}).OnIntercept(func(artifact *Artifact, action Action, gamestate *Gamestate) Action {
+	}).OnIntercept(func(artifact *Artifact, action gamestate.Action, gamestate *gamestate.Gamestate) gamestate.Action {
 		_, ok := action.(*EndTurnAction)
 		if ok {
 			damageCounter = 0
 			return action
 		}
 
-		general := filterUnits(gamestate.Board.GetPlayerUnits(artifact.Owner), func(unit Unit) bool {
+		general := filterUnits(artifact.Owner.Board.GetPlayerUnits(artifact.Owner), func(unit Unit) bool {
 			return unit.GetType() == "general"
 		})[0]
 		damageAction, ok := action.(*DamageAction)

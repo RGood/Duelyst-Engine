@@ -1,35 +1,8 @@
 package gamestate
 
-type Player struct {
-	id          *string
-	General     string
-	StartingPos Position
-	FacesRight  bool
-}
-
-func NewPlayer(id string, general string, pos Position, right bool) *Player {
-	return &Player{
-		id:          &id,
-		General:     general,
-		StartingPos: pos,
-		FacesRight:  right,
-	}
-}
-
-func (p *Player) IsAlive(gs *Gamestate) bool {
-	for unit, _ := range gs.Board.Units {
-		if unit.GetOwner() == p && unit.GetType() == "general" {
-			return true
-		}
-	}
-
-	return false
-}
-
 type Gamestate struct {
-	Players      []*Player
-	ActivePlayer *Player
-	Board        *UnitBoard
+	Players      []Player
+	ActivePlayer Player
 	actions      []Action
 
 	listeners    map[Listener]struct{}
@@ -38,22 +11,14 @@ type Gamestate struct {
 	ended bool
 }
 
-func NewGamestate(players ...*Player) *Gamestate {
+func NewGamestate(players ...Player) *Gamestate {
 	gs := &Gamestate{
 		Players:      players,
 		ActivePlayer: players[0],
-		Board:        NewUnitBoard(9, 5),
 		actions:      []Action{},
 		ended:        false,
 		listeners:    map[Listener]struct{}{},
 		interceptors: map[Interceptor]struct{}{},
-	}
-
-	for _, player := range players {
-		general := NewGeneral(player.General, player)
-		general.Place(gs.Board, player.StartingPos)
-
-		gs.Subscribe(general)
 	}
 
 	return gs
@@ -119,7 +84,7 @@ func (gs *Gamestate) EndTurn() *Gamestate {
 
 	apIndex++
 	apIndex %= len(gs.Players)
-	for !gs.Players[apIndex].IsAlive(gs) {
+	for !gs.Players[apIndex].IsAlive() {
 		apIndex++
 		apIndex %= len(gs.Players)
 	}
@@ -129,11 +94,11 @@ func (gs *Gamestate) EndTurn() *Gamestate {
 	return gs
 }
 
-func (gs *Gamestate) Winner() (bool, *Player) {
+func (gs *Gamestate) Winner() (bool, Player) {
 	if gs.HasEnded() {
-		var winner *Player
+		var winner Player
 		for _, player := range gs.Players {
-			if player.IsAlive(gs) {
+			if player.IsAlive() {
 				winner = player
 				break
 			}
@@ -149,7 +114,7 @@ func (gs *Gamestate) HasEnded() bool {
 	livePlayerCount := 0
 
 	for _, player := range gs.Players {
-		if player.IsAlive(gs) {
+		if player.IsAlive() {
 			livePlayerCount++
 		}
 	}
